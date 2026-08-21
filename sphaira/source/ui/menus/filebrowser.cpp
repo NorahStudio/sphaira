@@ -34,6 +34,7 @@
 
 #include "yati/yati.hpp"
 #include "yati/source/file.hpp"
+#include "yati/source/split_file.hpp"
 
 #include <minIni.h>
 #include <minizip/zip.h>
@@ -688,7 +689,21 @@ void FsView::OnClick() {
     const auto& entry = GetEntry();
 
     if (entry.type == FsDirEntryType_Dir) {
-        Scan(GetNewPathCurrent());
+        fs::FsPath split_logical_path{};
+        if (yati::source::IsSplitPath(GetFs(), GetNewPathCurrent(), split_logical_path)) {
+            const auto split_path = GetNewPathCurrent();
+            App::Push<OptionBox>(
+                i18n::Reorder("Install ", entry.GetName()) + '?',
+                "Yes"_i18n, "Open folder"_i18n, 0, [this, split_path](auto op_index){
+                if (op_index && *op_index == 0) {
+                    InstallFiles();
+                } else if (op_index && *op_index == 1) {
+                    Scan(split_path);
+                }
+            });
+        } else {
+            Scan(GetNewPathCurrent());
+        }
     } else {
         // special case for nro
         if (IsSd() && IsSamePath(entry.GetExtension(), "nro")) {
@@ -740,7 +755,9 @@ void FsView::OnClick() {
             }
         }
 #endif // ENABLE_LIBUSBDVD
-        else if (IsExtension(entry.GetExtension(), INSTALL_EXTENSIONS)) {
+        else if (entry.IsFile() && yati::source::IsSplitPartName(entry.GetName())) {
+            InstallFiles();
+        } else if (IsExtension(entry.GetExtension(), INSTALL_EXTENSIONS)) {
             InstallFiles();
         } else if (IsSd()) {
             const auto assoc_list = m_menu->FindFileAssocFor();
@@ -1747,9 +1764,24 @@ void FsView::DisplayOptions() {
         return true;
     };
 
+    // returns true if all entries can be installed, this includes
+    // regular install files and split files, either as a folder or parts.
+    const auto check_all_installable = [this](){
+        for (const auto& e : GetSelectedEntries()) {
+            if (IsExtension(e.GetExtension(), INSTALL_EXTENSIONS)) {
+                continue;
+            }
+            if (e.IsFile() && yati::source::IsSplitPartName(e.GetName())) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    };
+
     if (m_menu->CanInstall()) {
         if (m_entries_current.size()) {
-            if (check_all_ext(INSTALL_EXTENSIONS)) {
+            if (check_all_installable()) {
                 auto entry = options->Add<SidebarEntryCallback>("Install"_i18n, [this](){
                     InstallFiles();
                 });

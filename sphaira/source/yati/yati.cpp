@@ -1,5 +1,6 @@
 #include "yati/yati.hpp"
 #include "yati/source/file.hpp"
+#include "yati/source/split_file.hpp"
 #include "yati/source/stream_file.hpp"
 #include "yati/container/nsp.hpp"
 #include "yati/container/xci.hpp"
@@ -1523,14 +1524,30 @@ Result InstallInternalStream(ui::ProgressBox* pbox, source::Base* source, contai
 } // namespace
 
 Result InstallFromFile(ui::ProgressBox* pbox, fs::Fs* fs, const fs::FsPath& path, const ConfigOverride& override) {
-    auto source = std::make_unique<source::File>(fs, path);
-    R_TRY(source->GetOpenResult());
+    std::unique_ptr<source::Base> source;
     s64 source_size{-1};
-    if (R_FAILED(source->GetSize(&source_size))) {
-        source_size = -1;
+    fs::FsPath source_path{path};
+
+    fs::FsPath logical_path{};
+    if (source::IsSplitPath(fs, path, logical_path)) {
+        auto split_source = std::make_unique<source::SplitFile>(fs, path);
+        R_TRY(split_source->GetOpenResult());
+        if (R_FAILED(split_source->GetSize(&source_size))) {
+            source_size = -1;
+        }
+        source = std::move(split_source);
+        source_path = logical_path;
+    } else {
+        auto file_source = std::make_unique<source::File>(fs, path);
+        R_TRY(file_source->GetOpenResult());
+        if (R_FAILED(file_source->GetSize(&source_size))) {
+            source_size = -1;
+        }
+        // auto source = std::make_unique<source::StreamFile>(fs, path, override); // enable for testing.
+        source = std::move(file_source);
     }
-    // auto source = std::make_unique<source::StreamFile>(fs, path, override); // enable for testing.
-    return InstallFromSource(pbox, source.get(), path, override, source_size);
+
+    return InstallFromSource(pbox, source.get(), source_path, override, source_size);
 }
 
 Result InstallFromSource(ui::ProgressBox* pbox, source::Base* source, const fs::FsPath& path, const ConfigOverride& override, s64 source_size) {
