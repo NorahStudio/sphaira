@@ -8,6 +8,8 @@
 #include "option.hpp"
 #include "hasher.hpp"
 #include "nro.hpp"
+#include "game_file_scan.hpp"
+#include <map>
 #include <span>
 
 namespace sphaira::ui::menu::filebrowser {
@@ -366,6 +368,9 @@ struct FsView final : Widget {
 
     bool m_is_update_folder{};
     bool m_title_info_initialized{};
+    bool m_show_install_state{true};
+    std::map<std::string, game_file_scan::ScanResult> m_file_install_state{};
+    std::string m_install_scan_next{};
 };
 
 // contains all selected files for a command, such as copy, delete, cut etc.
