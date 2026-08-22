@@ -102,6 +102,7 @@ add_executable(sphaira
 
     source/app.cpp
     source/download.cpp
+    source/game_file_scan.cpp
     source/dumper.cpp
     source/game_lang.cpp
     source/option.cpp

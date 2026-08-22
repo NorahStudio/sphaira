@@ -18,6 +18,7 @@
 #include "app.hpp"
 #include "ui/nvg_util.hpp"
 #include "fs.hpp"
+#include "game_file_scan.hpp"
 #include "nro.hpp"
 #include "nacp_compat.hpp"
 #include "defines.hpp"
@@ -618,7 +619,56 @@ void FsView::Draw(NVGcontext* vg, Theme* theme) {
             gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT_INFO), "%02u/%02u/%u", tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
             gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->GetColour(ThemeEntryID_TEXT_INFO), "%s", utils::formatSizeStorage(e.file_size).c_str());
         }
+
+        // install state badge for nsp/nsz files.
+        if (m_show_install_state && e.IsFile() && IsExtension(e.GetExtension(), NSP_EXTENSIONS)) {
+            const std::string key{GetNewPath(e).s};
+            if (auto it = m_file_install_state.find(key); it != m_file_install_state.end()) {
+                const auto& res = it->second;
+                if (res.state != game_file_scan::InstallState::Unknown) {
+                    std::string badge_text{};
+                    auto badge_col = theme->GetColour(ThemeEntryID_TEXT_INFO);
+                    switch (res.state) {
+                        case game_file_scan::InstallState::New:
+                            badge_text = "New"_i18n;
+                            badge_col = theme->GetColour(ThemeEntryID_HIGHLIGHT_1);
+                            break;
+                        case game_file_scan::InstallState::UpdateAvailable:
+                            badge_text = "Update"_i18n;
+                            badge_col = theme->GetColour(ThemeEntryID_HIGHLIGHT_2);
+                            break;
+                        case game_file_scan::InstallState::UpToDate:
+                            badge_text = "Installed"_i18n;
+                            break;
+                        case game_file_scan::InstallState::Older:
+                            badge_text = "Older"_i18n;
+                            break;
+                        case game_file_scan::InstallState::Unknown:
+                            break;
+                    }
+
+                    if (!badge_text.empty()) {
+                        gfx::drawText(vg, x + w - text_xoffset - 130, y + (h / 2.f), 14.f, badge_col, badge_text.c_str(), NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
+                    }
+                }
+            } else if (m_install_scan_next.empty()) {
+                // queue this file for a scan (one per frame).
+                m_install_scan_next = key;
+            }
+        }
     });
+
+    // lazily scan install states so that we don't block the ui.
+    if (!m_install_scan_next.empty()) {
+        game_file_scan::ScanResult result{};
+        if (R_SUCCEEDED(game_file_scan::ScanFileInstallState(m_fs, fs::FsPath{m_install_scan_next}, result))) {
+            m_file_install_state[m_install_scan_next] = result;
+        } else {
+            // mark as unknown so that it doesn't get scanned again.
+            m_file_install_state[m_install_scan_next] = {};
+        }
+        m_install_scan_next.clear();
+    }
 }
 
 void FsView::OnFocusGained() {
@@ -1037,6 +1087,8 @@ auto FsView::Scan(fs::FsPath new_path, bool is_walk_up) -> Result {
     m_entries_current = {};
     m_selected_count = 0;
     m_is_update_folder = false;
+    m_install_scan_next.clear();
+    m_file_install_state.clear();
     SetIndex(0);
     m_menu->SetTitleSubHeading(m_path);
 
